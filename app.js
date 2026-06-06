@@ -629,6 +629,400 @@ function setAiStatus(message, state) {
   status.dataset.state = state || "";
 }
 
+const AI_APPRAISAL_SCHEMA_VERSION = "record-appraisal-v2";
+
+function appColumn(index) {
+  return MASTER_COLUMNS[index];
+}
+
+function fillSettings() {
+  const modelSelect = $("#openai-model");
+  if (modelSelect && !modelSelect.querySelector('option[value="gpt-5.4-mini"]')) {
+    const option = document.createElement("option");
+    option.value = "gpt-5.4-mini";
+    option.textContent = "gpt-5.4-mini";
+    modelSelect.appendChild(option);
+  }
+
+  $("#sync-url").value = settings.syncUrl || DEFAULT_SYNC_URL;
+  $("#sync-url").readOnly = true;
+  $("#openai-key").value = settings.openaiKey || "";
+  $("#openai-model").value = settings.openaiModel || DEFAULT_OPENAI_MODEL;
+}
+
+async function requestOpenAIAnalysis(apiKey, model, input, images) {
+  const content = [
+    { type: "input_text", text: buildAnalysisPrompt(input) },
+    ...images.map((image) => ({
+      type: "input_image",
+      image_url: image.dataUrl,
+      detail: "low",
+    })),
+  ];
+
+  const response = await fetch(OPENAI_RESPONSES_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      input: [{ role: "user", content }],
+      max_output_tokens: 2600,
+      text: {
+        format: {
+          type: "json_schema",
+          name: AI_APPRAISAL_SCHEMA_VERSION,
+          strict: true,
+          schema: analysisJsonSchema(),
+        },
+      },
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error?.message || `OpenAI API error ${response.status}`);
+  }
+
+  const text = extractResponseText(data);
+  if (!text) throw new Error("OpenAIからJSON本文を取得できませんでした。");
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("OpenAIの返却JSONを解析できませんでした。");
+  }
+}
+
+function buildAnalysisPrompt(input) {
+  return [
+    "以下のレコード画像と入力補足を解析してください。",
+    "",
+    "目的:",
+    "Discogs Medianを基準に、日本国内向け販売、POPUP運用、査定比較用のカタログ下書きを作成する。",
+    "ただし、実際のDiscogs APIや検索結果が与えられていない場合、Discogs MedianやRelease確定情報は断定しない。",
+    "価格は最終査定ではなく、国内中古レコード店バイヤー視点の一次判定として出す。",
+    "",
+    "優先順位:",
+    "1. 国内DJ需要",
+    "2. 日本中古市場での流通性",
+    "3. POPUPでの手離れ",
+    "4. 海外Discogs価格",
+    "5. コレクター性",
+    "",
+    "解析項目:",
+    "- Artist",
+    "- Title",
+    "- Label",
+    "- Catalog Number",
+    "- Country",
+    "- Year",
+    "- Format",
+    "- Genre / Style",
+    "- Matrix / Runout（判読可能な場合のみ）",
+    "- Original / Reissue / Promo / White Label 判定",
+    "- Discogs検索用キーワード",
+    "- Discogs Release候補（最大3件、候補レベルでよい）",
+    "- 国内需要評価（Rare Groove / AOR / Free Soul / City Pop / Balearic / Ambient / Japanese DJ人気 / 海外需要など）",
+    "- 国内販売価格目安（Discogs Medianが未取得なら、画像情報と国内需要からの仮レンジ）",
+    "- ディスクユニオン想定評価",
+    "- Face Records想定評価",
+    "- BBQ Records系評価（HIPHOP / Sampling / Rare Groove文脈含む）",
+    "- POPUP販売区分（即売向き / POPUP向き / 高額保留 / 業者流し向き / 要確認）",
+    "- コメント（人気理由・国内人気層・DJ支持・再評価文脈など）",
+    "",
+    "価格補正ルール:",
+    "- 状態補正を考慮する（EX / VG+ / VG 想定）。",
+    "- 帯付き国内盤は加点する。",
+    "- 日本DJ需要を優先する。",
+    "- 海外高騰のみの盤は国内向けに補正する。",
+    "- 再発盤は適正補正する。",
+    "- 売れる速度も考慮する。",
+    "- 国内販売価格は一点価格ではなく、例: 2,000-3,500円 のようなレンジで返す。",
+    "",
+    "重要:",
+    "- 日本語で返す。",
+    "- 不確定要素は uncertainty_notes と next_check_points に必ず書く。",
+    "- 型番違いの可能性があれば記載する。",
+    "- 写真情報不足時は推測しすぎない。",
+    "- Discogs Medianは、写真と補足だけで確定できない場合は「要照合」または「未取得」とする。",
+    "- DU / Face / BBQ は実査定額ではなく、比較用の参考コメントとして返す。",
+    "- 返答はJSONだけ。Markdownや説明文は付けない。",
+    "",
+    "入力補足:",
+    `Artist: ${input.artist || ""}`,
+    `Title: ${input.title || ""}`,
+    `Label: ${input.labelName || ""}`,
+    `Catalog Number: ${input.catalogNo || ""}`,
+    `Country: ${input.country || ""}`,
+    `Year: ${input.year || ""}`,
+    `盤種・ラベル情報: ${input.labelInfo || ""}`,
+    `状態メモ: ${input.conditionMemo || ""}`,
+    `現場所見: ${input.fieldNote || ""}`,
+  ].join("\n");
+}
+
+function analysisJsonSchema() {
+  const stringField = { type: "string" };
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "artist",
+      "title",
+      "label",
+      "catalog_number",
+      "country",
+      "year",
+      "format",
+      "genre_style",
+      "matrix_runout",
+      "pressing",
+      "discogs_search_keywords",
+      "discogs_release_candidates",
+      "discogs_median",
+      "domestic_demand_evaluation",
+      "domestic_price_range_jpy",
+      "du_evaluation",
+      "face_records_evaluation",
+      "bbq_records_evaluation",
+      "popup_sales_category",
+      "domestic_position",
+      "price_reasoning",
+      "comment",
+      "uncertainty_notes",
+      "next_check_points",
+    ],
+    properties: {
+      artist: stringField,
+      title: stringField,
+      label: stringField,
+      catalog_number: stringField,
+      country: stringField,
+      year: stringField,
+      format: stringField,
+      genre_style: stringField,
+      matrix_runout: stringField,
+      pressing: stringField,
+      discogs_search_keywords: stringField,
+      discogs_release_candidates: {
+        type: "array",
+        items: stringField,
+      },
+      discogs_median: stringField,
+      domestic_demand_evaluation: stringField,
+      domestic_price_range_jpy: stringField,
+      du_evaluation: stringField,
+      face_records_evaluation: stringField,
+      bbq_records_evaluation: stringField,
+      popup_sales_category: stringField,
+      domestic_position: stringField,
+      price_reasoning: stringField,
+      comment: stringField,
+      uncertainty_notes: stringField,
+      next_check_points: stringField,
+    },
+  };
+}
+
+function normalizeAnalysis(analysis) {
+  const source = analysis || {};
+  return {
+    artist: source.artist || "",
+    title: source.title || "",
+    label: source.label || "",
+    catalog_number: source.catalog_number || "",
+    country: source.country || "",
+    year: source.year || "",
+    format: source.format || "",
+    genre_style: source.genre_style || "",
+    matrix_runout: source.matrix_runout || "",
+    pressing: source.pressing || "",
+    discogs_search_keywords: source.discogs_search_keywords || "",
+    discogs_release_candidates: Array.isArray(source.discogs_release_candidates)
+      ? source.discogs_release_candidates
+      : [],
+    discogs_median: source.discogs_median || "",
+    domestic_demand_evaluation: source.domestic_demand_evaluation || source.domestic_position || "",
+    domestic_price_range_jpy: source.domestic_price_range_jpy || source.rough_price_range_jpy || "",
+    du_evaluation: source.du_evaluation || "",
+    face_records_evaluation: source.face_records_evaluation || "",
+    bbq_records_evaluation: source.bbq_records_evaluation || "",
+    popup_sales_category: source.popup_sales_category || source.sales_category || "",
+    domestic_position: source.domestic_position || "",
+    price_reasoning: source.price_reasoning || "",
+    comment: source.comment || source.short_comment || "",
+    uncertainty_notes: source.uncertainty_notes || arrayToText(source.uncertainty_flags),
+    next_check_points: source.next_check_points || "",
+    rough_price_rank: source.rough_price_rank || "",
+  };
+}
+
+function applyAnalysisToRecord(record, rawAnalysis) {
+  const analysis = normalizeAnalysis(rawAnalysis);
+  const fields = record.fields;
+
+  if (analysis.artist) fields[appColumn(2)] = analysis.artist;
+  if (analysis.title) fields[appColumn(3)] = analysis.title;
+  if (analysis.catalog_number) fields[appColumn(4)] = analysis.catalog_number;
+  if (analysis.country) fields[appColumn(5)] = analysis.country;
+
+  fields[appColumn(6)] = compactText([
+    analysis.label && `Label: ${analysis.label}`,
+    analysis.year && `Year: ${analysis.year}`,
+    analysis.format,
+    analysis.pressing,
+    analysis.genre_style,
+    analysis.matrix_runout && `Matrix: ${analysis.matrix_runout}`,
+    analysis.discogs_search_keywords && `Discogs検索: ${analysis.discogs_search_keywords}`,
+    analysis.discogs_release_candidates.length && `Release候補: ${analysis.discogs_release_candidates.join(" / ")}`,
+    fields[appColumn(6)],
+  ], " / ");
+
+  fields[appColumn(8)] = analysis.discogs_median || "要照合";
+  fields[appColumn(9)] = analysis.du_evaluation || "参考評価: 要照合";
+  fields[appColumn(10)] = analysis.face_records_evaluation || "参考評価: 要照合";
+  fields[appColumn(11)] = analysis.domestic_price_range_jpy || "";
+  fields[appColumn(12)] = priceRankFromAnalysis(analysis);
+  fields[appColumn(13)] = analysis.popup_sales_category || fields[appColumn(13)];
+  fields[appColumn(14)] = statusFromAnalysis(fields[appColumn(12)], analysis);
+  fields[appColumn(15)] = compactText([
+    analysis.genre_style,
+    analysis.domestic_demand_evaluation,
+    analysis.domestic_position,
+  ], " / ");
+  fields[appColumn(16)] = shelfFromAnalysis(analysis) || fields[appColumn(16)];
+  fields[appColumn(20)] = buildAppraisalComment(analysis);
+  fields[appColumn(21)] = buildAnalysisCaption(analysis);
+
+  record.analysis = { ...analysis, schemaVersion: AI_APPRAISAL_SCHEMA_VERSION };
+  record.flags = uniqueFlags([
+    ...(record.flags || []),
+    ...analysisFlags(analysis),
+    "Discogs Median要照合",
+    "DU/Face/BBQ参考評価",
+    !analysis.domestic_price_range_jpy && "国内販売価格レンジ",
+    !analysis.catalog_number && "型番",
+  ]);
+  record.updatedAt = new Date().toISOString();
+}
+
+function analysisFlags(analysis) {
+  return compactText([
+    analysis.uncertainty_notes,
+    analysis.next_check_points,
+  ], " / ")
+    .split(/[、,\n/]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function priceRankFromAnalysis(rawAnalysis) {
+  const analysis = normalizeAnalysis(rawAnalysis);
+  const explicitRank = String(analysis.rough_price_rank || "");
+  if (/^S/.test(explicitRank)) return optionByPrefix(PRICE_OPTIONS, "S", "S・高額・個別管理");
+  if (/^A/.test(explicitRank)) return optionByPrefix(PRICE_OPTIONS, "A", "A・中高額棚盤");
+  if (/^B/.test(explicitRank)) return optionByPrefix(PRICE_OPTIONS, "B", "B・回転良盤");
+  if (/^C/.test(explicitRank)) return optionByPrefix(PRICE_OPTIONS, "C", "C・入口商品");
+
+  const salePrice = numberFromText(analysis.domestic_price_range_jpy);
+  const text = compactText([
+    analysis.popup_sales_category,
+    analysis.domestic_demand_evaluation,
+    analysis.domestic_position,
+    analysis.price_reasoning,
+    analysis.comment,
+  ], " ");
+
+  if (/高額|保留|個別|希少|promo|white label/i.test(text) || salePrice >= 12000) {
+    return optionByPrefix(PRICE_OPTIONS, "S", "S・高額・個別管理");
+  }
+  if (salePrice >= 5000 || /AOR|City Pop|Rare Groove|Free Soul|Balearic|Ambient|DJ人気/i.test(text)) {
+    return optionByPrefix(PRICE_OPTIONS, "A", "A・中高額棚盤");
+  }
+  if (salePrice >= 1800 || /POPUP|即売|回転|定番/i.test(text)) {
+    return optionByPrefix(PRICE_OPTIONS, "B", "B・回転良盤");
+  }
+  return optionByPrefix(PRICE_OPTIONS, "C", "C・入口商品");
+}
+
+function statusFromAnalysis(priceRank, rawAnalysis) {
+  const analysis = normalizeAnalysis(rawAnalysis);
+  const text = compactText([
+    analysis.popup_sales_category,
+    analysis.uncertainty_notes,
+    analysis.next_check_points,
+    analysis.comment,
+  ], " ");
+
+  if (String(priceRank || "").startsWith("S") || /高額保留|個別|要保留/.test(text)) {
+    return optionByContains(STATUS_OPTIONS, "個別", "個別管理");
+  }
+  if (/要確認|不確定|型番違い|判読|要照合|写真不足/.test(text)) {
+    return optionByContains(STATUS_OPTIONS, "要確認", "要確認");
+  }
+  return optionByContains(STATUS_OPTIONS, "販売準備", "販売準備中");
+}
+
+function shelfFromAnalysis(rawAnalysis) {
+  const analysis = normalizeAnalysis(rawAnalysis);
+  const text = compactText([
+    analysis.genre_style,
+    analysis.domestic_demand_evaluation,
+    analysis.domestic_position,
+    analysis.comment,
+  ], " ").toLowerCase();
+  const shelves = [];
+
+  if (/帯|国内盤|japanese|city pop|和モノ/.test(text)) shelves.push(SHELF_TAGS[3]);
+  if (/ambient|balearic|aor|mellow|city|dub|night|free soul/.test(text)) shelves.push(SHELF_TAGS[1]);
+  if (/即売|popup|classic|定番|回転|rare groove|sampling|hiphop/.test(text)) shelves.push(SHELF_TAGS[2]);
+  if (/jacket|cover|アート|ジャケ|デザイン/.test(text)) shelves.push(SHELF_TAGS[0]);
+  if (!shelves.length) shelves.push(SHELF_TAGS[4]);
+
+  return uniqueFlags(shelves).filter(Boolean).slice(0, 2).join("・");
+}
+
+function buildAppraisalComment(rawAnalysis) {
+  const analysis = normalizeAnalysis(rawAnalysis);
+  return compactText([
+    analysis.comment,
+    analysis.price_reasoning && `価格理由: ${analysis.price_reasoning}`,
+    analysis.du_evaluation && `DU: ${analysis.du_evaluation}`,
+    analysis.face_records_evaluation && `Face: ${analysis.face_records_evaluation}`,
+    analysis.bbq_records_evaluation && `BBQ: ${analysis.bbq_records_evaluation}`,
+    analysis.uncertainty_notes && `不確定: ${analysis.uncertainty_notes}`,
+    analysis.next_check_points && `次確認: ${analysis.next_check_points}`,
+  ], "\n");
+}
+
+function buildAnalysisCaption(rawAnalysis) {
+  const analysis = normalizeAnalysis(rawAnalysis);
+  const title = compactText([analysis.artist, analysis.title], " - ");
+  const context = compactText([
+    analysis.genre_style,
+    analysis.domestic_demand_evaluation,
+    analysis.domestic_price_range_jpy,
+    analysis.popup_sales_category,
+  ], " / ");
+  return compactText([title, context, analysis.comment], "。");
+}
+
+function optionByPrefix(options, prefix, fallback) {
+  return options.find((option) => String(option).startsWith(prefix)) || fallback;
+}
+
+function optionByContains(options, keyword, fallback) {
+  return options.find((option) => String(option).includes(keyword)) || fallback;
+}
+
+function arrayToText(value) {
+  return Array.isArray(value) ? value.filter(Boolean).join(" / ") : "";
+}
+
 function fileToResizedDataUrl(file, maxSide = 1200, quality = 0.76) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
