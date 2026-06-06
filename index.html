@@ -288,16 +288,17 @@
               </div>
               <div class="sync-grid">
                 <label class="wide">
-                  <span>Apps Script WebアプリURL</span>
-                  <input id="sync-url" type="url" placeholder="https://script.google.com/macros/s/.../exec" />
+                  <span>Apps Script WebアプリURL（固定）</span>
+                  <input id="sync-url" type="url" readonly placeholder="https://script.google.com/macros/s/.../exec" />
                 </label>
-                <button id="save-sync-url" class="button button-secondary" type="button">URL保存</button>
+                <button id="save-sync-url" class="button button-secondary" type="button">固定URL確認</button>
+                <button id="copy-share-link" class="button button-secondary" type="button">共有URLコピー</button>
                 <button id="sync-sheets-secondary" class="button button-primary" type="button">未同期を送信</button>
                 <button id="create-test-record" class="button button-secondary" type="button">テストデータ作成</button>
                 <button id="reset-sync-state" class="button button-secondary wide" type="button">同期状態リセット</button>
               </div>
               <p id="sync-help" class="help-text">
-                新しいスプレッドシートへ移す時は、新しいApps Script URLを保存してから同期状態をリセットし、未同期を送信します。
+                同期先は固定済みです。このURLを共有したスタッフも、運用タブで未同期を送信するだけで同じスプレッドシートへ反映できます。
               </p>
             </section>
           </div>

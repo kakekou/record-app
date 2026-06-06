@@ -69,7 +69,7 @@ const SHELF_TAGS = [
 
 const STORAGE_KEY = "oiso-record-app.records.v1";
 const SETTINGS_KEY = "oiso-record-app.settings.v1";
-const DEFAULT_SYNC_URL = "";
+const DEFAULT_SYNC_URL = "https://script.google.com/macros/s/AKfycbxBSSPa1AtE95mrH4KTgld4J2DxyhHCRz8mjrmZibTFVOPH7VvijP59slL7XKm7SUs5/exec";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const DB_NAME = "oiso-record-app";
@@ -89,6 +89,7 @@ const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selec
 document.addEventListener("DOMContentLoaded", () => {
   records = loadRecords();
   settings = loadSettings();
+  enforceFixedSyncUrl();
   seedDate();
   fillOptionLists();
   fillSettings();
@@ -122,6 +123,7 @@ function bindEvents() {
   $("#sync-sheets").addEventListener("click", syncApprovedRecords);
   $("#sync-sheets-secondary").addEventListener("click", syncApprovedRecords);
   $("#save-sync-url").addEventListener("click", saveSyncSettings);
+  $("#copy-share-link").addEventListener("click", copyConfiguredShareLink);
   $("#create-test-record").addEventListener("click", createTestApprovedRecord);
   $("#reset-sync-state").addEventListener("click", resetSyncState);
   $("#clear-all").addEventListener("click", clearAllData);
@@ -134,8 +136,25 @@ function bindEvents() {
 
 function fillSettings() {
   $("#sync-url").value = settings.syncUrl || DEFAULT_SYNC_URL;
+  $("#sync-url").readOnly = true;
   $("#openai-key").value = settings.openaiKey || "";
   $("#openai-model").value = settings.openaiModel || DEFAULT_OPENAI_MODEL;
+}
+
+function enforceFixedSyncUrl() {
+  settings.syncUrl = DEFAULT_SYNC_URL;
+  saveSettings();
+
+  const params = new URLSearchParams(location.search);
+  if (!params.has("syncUrl")) return;
+
+  params.delete("syncUrl");
+  const cleanUrl = `${location.pathname}${params.toString() ? `?${params.toString()}` : ""}${location.hash}`;
+  history.replaceState(null, "", cleanUrl);
+}
+
+function isAppsScriptExecUrl(value) {
+  return /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec(?:[?#].*)?$/.test(String(value || "").trim());
 }
 
 function seedDate() {
@@ -1005,9 +1024,26 @@ function exportJson() {
 }
 
 function saveSyncSettings() {
-  settings.syncUrl = $("#sync-url").value.trim();
+  settings.syncUrl = DEFAULT_SYNC_URL;
+  $("#sync-url").value = DEFAULT_SYNC_URL;
   saveSettings();
-  showToast("同期URLを保存しました。");
+  showToast("同期先は固定済みです。");
+}
+
+async function copyConfiguredShareLink() {
+  settings.syncUrl = DEFAULT_SYNC_URL;
+  saveSettings();
+
+  const url = new URL(location.href);
+  url.search = "";
+  url.hash = "";
+
+  try {
+    await copyText(url.toString());
+    showToast("共有URLをコピーしました。");
+  } catch {
+    showToast("コピーできませんでした。ブラウザのURLを共有してください。");
+  }
 }
 
 function getUnsyncedApprovedRecords() {
@@ -1111,7 +1147,7 @@ function createTestApprovedRecord() {
 }
 
 async function syncApprovedRecords() {
-  const endpoint = ($("#sync-url").value || settings.syncUrl || DEFAULT_SYNC_URL).trim();
+  const endpoint = DEFAULT_SYNC_URL;
   if (!endpoint) {
     showToast("Apps Script WebアプリURLを設定してください。");
     setView("operations");
@@ -1126,6 +1162,7 @@ async function syncApprovedRecords() {
   }
 
   settings.syncUrl = endpoint;
+  $("#sync-url").value = endpoint;
   saveSettings();
 
   const sentAt = new Date().toISOString();
@@ -1261,6 +1298,24 @@ function nextId() {
 function makeUid() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `rec-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const ok = document.execCommand("copy");
+  textarea.remove();
+  if (!ok) throw new Error("Copy failed");
 }
 
 function loadRecords() {
