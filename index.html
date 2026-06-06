@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#255f54" />
+    <title>大磯アーカイヴ レコード管理</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <p class="eyebrow">大磯アーカイヴ</p>
+          <h1>レコード管理</h1>
+        </div>
+        <div class="metric-strip" aria-label="件数">
+          <div>
+            <span id="metric-total">0</span>
+            <small>総件数</small>
+          </div>
+          <div>
+            <span id="metric-drafts">0</span>
+            <small>下書き</small>
+          </div>
+          <div>
+            <span id="metric-approved">0</span>
+            <small>承認済み</small>
+          </div>
+          <div>
+            <span id="metric-flags">0</span>
+            <small>要確認</small>
+          </div>
+        </div>
+      </header>
+
+      <nav class="tabbar" aria-label="メイン">
+        <button class="tab is-active" type="button" data-view="capture">入力</button>
+        <button class="tab" type="button" data-view="review">確認</button>
+        <button class="tab" type="button" data-view="master">マスター</button>
+        <button class="tab" type="button" data-view="operations">運用</button>
+      </nav>
+
+      <main>
+        <section id="view-capture" class="view is-active" aria-labelledby="capture-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Step 1</p>
+              <h2 id="capture-title">撮影入力</h2>
+            </div>
+            <button id="reset-form" class="button button-secondary" type="button">新規クリア</button>
+          </div>
+
+          <form id="intake-form" class="workspace-grid">
+            <section class="panel photo-panel" aria-label="写真">
+              <div class="panel-title">
+                <h3>写真3枚</h3>
+                <span class="pill">iPhone対応</span>
+              </div>
+              <div class="photo-grid">
+                <label class="photo-slot" for="photo-front">
+                  <input id="photo-front" type="file" name="front" accept="image/*" capture="environment" data-photo="front" />
+                  <span class="photo-label">ジャケ表</span>
+                  <span class="photo-preview" id="preview-front"></span>
+                  <span class="photo-name" id="name-front">未選択</span>
+                </label>
+                <label class="photo-slot" for="photo-back">
+                  <input id="photo-back" type="file" name="back" accept="image/*" capture="environment" data-photo="back" />
+                  <span class="photo-label">ジャケ裏</span>
+                  <span class="photo-preview" id="preview-back"></span>
+                  <span class="photo-name" id="name-back">未選択</span>
+                </label>
+                <label class="photo-slot" for="photo-disc">
+                  <input id="photo-disc" type="file" name="disc" accept="image/*" capture="environment" data-photo="disc" />
+                  <span class="photo-label">盤面</span>
+                  <span class="photo-preview" id="preview-disc"></span>
+                  <span class="photo-name" id="name-disc">未選択</span>
+                </label>
+              </div>
+            </section>
+
+            <section class="panel input-panel" aria-label="最小情報">
+              <div class="panel-title">
+                <h3>最小情報</h3>
+                <span class="pill pill-muted">22列へ変換</span>
+              </div>
+              <div class="field-grid">
+                <label>
+                  <span>撮影日</span>
+                  <input type="date" name="shotDate" id="shot-date" required />
+                </label>
+                <label>
+                  <span>撮影者</span>
+                  <select name="photographer" required>
+                    <option>山田</option>
+                    <option>服部</option>
+                    <option>その他</option>
+                  </select>
+                </label>
+                <label>
+                  <span>アーティスト</span>
+                  <input type="text" name="artist" autocomplete="off" required />
+                </label>
+                <label>
+                  <span>タイトル</span>
+                  <input type="text" name="title" autocomplete="off" required />
+                </label>
+                <label>
+                  <span>レーベル</span>
+                  <input type="text" name="labelName" autocomplete="off" />
+                </label>
+                <label>
+                  <span>型番</span>
+                  <input type="text" name="catalogNo" autocomplete="off" />
+                </label>
+                <label>
+                  <span>国</span>
+                  <input type="text" name="country" autocomplete="off" />
+                </label>
+                <label>
+                  <span>年</span>
+                  <input type="text" name="year" inputmode="numeric" autocomplete="off" />
+                </label>
+                <label>
+                  <span>盤種ラベル情報</span>
+                  <input type="text" name="labelInfo" autocomplete="off" />
+                </label>
+                <label class="wide">
+                  <span>状態の気づきメモ</span>
+                  <textarea name="conditionMemo" rows="3"></textarea>
+                </label>
+                <label class="wide">
+                  <span>現場所見</span>
+                  <textarea name="fieldNote" rows="3"></textarea>
+                </label>
+              </div>
+              <div class="button-row">
+                <button class="button button-primary" type="submit">下書き作成</button>
+              </div>
+            </section>
+
+            <section class="panel ai-panel" aria-label="OpenAIラフ査定">
+              <div class="panel-title">
+                <h3>OpenAIラフ査定</h3>
+                <span class="pill pill-muted">大枠のみ</span>
+              </div>
+              <div class="ai-grid">
+                <label class="wide">
+                  <span>OpenAI API Key</span>
+                  <input id="openai-key" type="password" autocomplete="off" placeholder="sk-..." />
+                </label>
+                <label>
+                  <span>モデル</span>
+                  <select id="openai-model">
+                    <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                  </select>
+                </label>
+                <button id="save-openai-key" class="button button-secondary" type="button">キー保存</button>
+                <button id="analyze-openai" class="button button-primary wide" type="button">ラフ査定して下書き作成</button>
+              </div>
+              <p class="help-text">
+                APIキーはこのブラウザ内だけに保存します。今は価格帯・販売区分・要確認ポイントだけを作り、精密査定は後で実装します。
+              </p>
+              <div id="ai-status" class="analysis-status">未実行</div>
+            </section>
+          </form>
+        </section>
+
+        <section id="view-review" class="view" aria-labelledby="review-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Step 2</p>
+              <h2 id="review-title">下書き確認</h2>
+            </div>
+            <div class="button-row compact-actions">
+              <button id="approve-record" class="button button-primary" type="button">承認</button>
+              <button id="delete-record" class="button button-danger" type="button">削除</button>
+            </div>
+          </div>
+
+          <div class="review-layout">
+            <aside class="panel list-panel">
+              <div class="panel-title">
+                <h3>下書き</h3>
+                <span id="draft-count" class="pill pill-muted">0</span>
+              </div>
+              <div id="draft-list" class="record-list"></div>
+            </aside>
+
+            <section class="panel editor-panel">
+              <div id="review-empty" class="empty-state">下書きはありません。</div>
+              <div id="review-editor" hidden>
+                <div class="editor-head">
+                  <div>
+                    <p id="selected-subtitle" class="eyebrow">Record</p>
+                    <h3 id="selected-title">Untitled</h3>
+                  </div>
+                  <div id="selected-flags" class="flag-strip"></div>
+                </div>
+                <div id="selected-photos" class="mini-photo-row"></div>
+                <div id="field-editor" class="field-editor"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-master" class="view" aria-labelledby="master-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Step 3</p>
+              <h2 id="master-title">マスター</h2>
+            </div>
+            <div class="button-row compact-actions">
+              <button id="sync-sheets" class="button button-primary" type="button">Sheets同期</button>
+              <button id="export-csv" class="button button-secondary" type="button">CSV</button>
+              <button id="export-json" class="button button-secondary" type="button">JSON</button>
+            </div>
+          </div>
+
+          <section class="panel master-panel">
+            <div class="filter-row">
+              <label>
+                <span>検索</span>
+                <input id="search-records" type="search" placeholder="artist / title / tag" />
+              </label>
+              <label>
+                <span>価格判断</span>
+                <select id="filter-price">
+                  <option value="">すべて</option>
+                </select>
+              </label>
+              <label>
+                <span>ステータス</span>
+                <select id="filter-status">
+                  <option value="">すべて</option>
+                </select>
+              </label>
+              <label>
+                <span>棚</span>
+                <select id="filter-shelf">
+                  <option value="">すべて</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-wrap">
+              <table id="master-table">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="view-operations" class="view" aria-labelledby="operations-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Step 4</p>
+              <h2 id="operations-title">振り分け</h2>
+            </div>
+            <button id="clear-all" class="button button-danger" type="button">全データ初期化</button>
+          </div>
+
+          <div class="ops-grid">
+            <section class="panel">
+              <div class="panel-title">
+                <h3>100枚進捗</h3>
+                <span id="batch-label" class="pill">0 / 100</span>
+              </div>
+              <div class="progress-track">
+                <span id="batch-progress"></span>
+              </div>
+              <div id="ops-summary" class="ops-summary"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-title">
+                <h3>候補抽出</h3>
+                <span class="pill pill-muted">承認済み</span>
+              </div>
+              <div id="candidate-groups" class="candidate-groups"></div>
+            </section>
+
+            <section class="panel sync-panel">
+              <div class="panel-title">
+                <h3>Google Sheets同期</h3>
+                <span id="sync-count" class="pill pill-muted">未同期 0</span>
+              </div>
+              <div class="sync-grid">
+                <label class="wide">
+                  <span>Apps Script WebアプリURL</span>
+                  <input id="sync-url" type="url" placeholder="https://script.google.com/macros/s/.../exec" />
+                </label>
+                <button id="save-sync-url" class="button button-secondary" type="button">URL保存</button>
+                <button id="sync-sheets-secondary" class="button button-primary" type="button">未同期を送信</button>
+                <button id="create-test-record" class="button button-secondary" type="button">テストデータ作成</button>
+                <button id="reset-sync-state" class="button button-secondary wide" type="button">同期状態リセット</button>
+              </div>
+              <p id="sync-help" class="help-text">
+                新しいスプレッドシートへ移す時は、新しいApps Script URLを保存してから同期状態をリセットし、未同期を送信します。
+              </p>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <datalist id="shelf-options"></datalist>
+    <script src="./app.js" defer></script>
+  </body>
+</html>
