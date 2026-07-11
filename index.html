@@ -73,7 +73,7 @@
                 </label>
                 <label class="photo-slot" for="photo-disc">
                   <input id="photo-disc" type="file" name="disc" accept="image/*" capture="environment" data-photo="disc" />
-                  <span class="photo-label">盤面</span>
+                  <span class="photo-label">A面ラベル</span>
                   <span class="photo-preview" id="preview-disc"></span>
                   <span class="photo-name" id="name-disc">未選択</span>
                 </label>
@@ -123,6 +123,38 @@
                   <input type="text" name="year" inputmode="numeric" autocomplete="off" />
                 </label>
                 <label>
+                  <span>盤種</span>
+                  <select name="format">
+                    <option value="">未確認</option>
+                    <option value="LP">LP</option>
+                    <option value="12-inch">12インチ</option>
+                    <option value="7-inch">7インチ</option>
+                    <option value="10-inch">10インチ</option>
+                    <option value="EP">EP</option>
+                    <option value="Box Set">Box Set</option>
+                    <option value="Other">その他</option>
+                  </select>
+                </label>
+                <label>
+                  <span>盤質（人が確認）</span>
+                  <select name="conditionGrade">
+                    <option value="">未評価</option>
+                    <option value="EX">EX</option>
+                    <option value="VG+">VG+</option>
+                    <option value="VG">VG</option>
+                    <option value="G">G以下</option>
+                  </select>
+                </label>
+                <label>
+                  <span>帯</span>
+                  <select name="obiStatus">
+                    <option value="">未確認</option>
+                    <option value="帯あり">帯あり</option>
+                    <option value="帯なし">帯なし</option>
+                    <option value="帯なし対象外">国内盤以外・対象外</option>
+                  </select>
+                </label>
+                <label>
                   <span>盤種ラベル情報</span>
                   <input type="text" name="labelInfo" autocomplete="off" />
                 </label>
@@ -140,27 +172,16 @@
               </div>
             </section>
 
-            <section class="panel ai-panel" aria-label="OpenAIラフ査定">
+            <section class="panel ai-panel" aria-label="OpenAI一次判定">
               <div class="panel-title">
-                <h3>OpenAIラフ査定</h3>
-                <span class="pill pill-muted">大枠のみ</span>
+                <h3>OpenAI一次判定</h3>
+                <span class="pill pill-muted">人が最終確認</span>
               </div>
               <div class="ai-grid">
-                <label class="wide">
-                  <span>OpenAI API Key</span>
-                  <input id="openai-key" type="password" autocomplete="off" placeholder="sk-..." />
-                </label>
-                <label>
-                  <span>モデル</span>
-                  <select id="openai-model">
-                    <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-                  </select>
-                </label>
-                <button id="save-openai-key" class="button button-secondary" type="button">キー保存</button>
-                <button id="analyze-openai" class="button button-primary wide" type="button">ラフ査定して下書き作成</button>
+                <button id="analyze-openai" class="button button-primary wide" type="button">AI一次判定して下書き作成</button>
               </div>
               <p class="help-text">
-                APIキーはこのブラウザ内だけに保存します。今は価格帯・販売区分・要確認ポイントだけを作り、精密査定は後で実装します。
+                Discogs Medianと実店舗査定額は未取得として扱います。
               </p>
               <div id="ai-status" class="analysis-status">未実行</div>
             </section>

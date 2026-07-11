@@ -1,0 +1,6 @@
+.git
+.codex-analysis
+google-apps-script
+README.md
+.server-*.log
+.server-*.pid
