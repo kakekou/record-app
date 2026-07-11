@@ -1,4 +1,4 @@
-const CACHE_NAME = "oiso-record-app-v13";
+const CACHE_NAME = "oiso-record-app-v14";
 const ASSETS = [
   "./",
   "./index.html",

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#255f54" />
+    <meta name="theme-color" content="#176857" />
     <title>大磯アーカイヴ レコード管理</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
@@ -11,9 +11,12 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand-block">
-          <p class="eyebrow">大磯アーカイヴ</p>
-          <h1>レコード管理</h1>
+        <div class="brand-identity">
+          <div class="brand-mark" aria-hidden="true"><span></span></div>
+          <div class="brand-block">
+            <p class="eyebrow">大磯アーカイヴ</p>
+            <h1>レコード管理</h1>
+          </div>
         </div>
         <div class="metric-strip" aria-label="件数">
           <div>
@@ -36,10 +39,10 @@
       </header>
 
       <nav class="tabbar" aria-label="メイン">
-        <button class="tab is-active" type="button" data-view="capture">入力</button>
-        <button class="tab" type="button" data-view="review">確認</button>
-        <button class="tab" type="button" data-view="master">マスター</button>
-        <button class="tab" type="button" data-view="operations">運用</button>
+        <button class="tab is-active" type="button" data-view="capture" data-step="01">入力</button>
+        <button class="tab" type="button" data-view="review" data-step="02">確認</button>
+        <button class="tab" type="button" data-view="master" data-step="03">マスター</button>
+        <button class="tab" type="button" data-view="operations" data-step="04">運用</button>
       </nav>
 
       <main>
