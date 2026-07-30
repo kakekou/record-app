@@ -96,7 +96,7 @@ test("signs the exact payload and verifies accepted UIDs", async () => {
           inserted: 1,
           updated: 0,
           acceptedUids: ["123e4567-e89b-42d3-a456-426614174000"],
-          version: "record-sync-v3",
+          version: "record-sync-v4",
         });
       },
     };

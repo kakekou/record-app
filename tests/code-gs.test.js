@@ -72,3 +72,18 @@ test("accepts a correctly signed request and rejects replay", () => {
   assert.equal(code.getSignedPayload(event), payload);
   assert.throws(() => code.getSignedPayload(event), /Replayed request/);
 });
+
+test("keeps AI, market, human-confirmed, and sold prices in separate columns", () => {
+  const code = loadCodeGs();
+  [
+    "AI仮価格（下限円）",
+    "AI仮価格（上限円）",
+    "市場データ国内換算価格（円）",
+    "人が確定した販売価格（円）",
+    "価格確定者",
+    "価格確定日時",
+    "実売価格（円）",
+  ].forEach((column) => {
+    assert.equal(code.MASTER_COLUMNS.includes(column), true, `${column} is missing`);
+  });
+});

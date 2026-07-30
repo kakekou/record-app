@@ -21,21 +21,57 @@ const MASTER_COLUMNS = [
   "記録媒体章立て候補",
   "山田コメント",
   "販売キャプション",
+  "AI仮価格（下限円）",
+  "AI仮価格（上限円）",
+  "AI仮価格帯",
+  "AI仮価格確信度（%）",
+  "市場データ国内換算価格（円）",
+  "市場データ取得元",
+  "市場データ取得日時",
+  "人が確定した販売価格（円）",
+  "価格確定者",
+  "価格確定日時",
+  "実売価格（円）",
+  "実売日",
+  "移行前販売価格",
 ];
 
 const FIELD_GROUPS = [
   { name: "コア識別", columns: ["ID", "区分", "アーティスト", "タイトル", "型番"] },
   { name: "盤情報", columns: ["国", "盤種・ラベル情報", "状態メモ"] },
   {
-    name: "価格レイヤー",
+    name: "AI一次価格",
     columns: [
-      "Discogs Median USD",
-      "ディスクユニオン査定額",
-      "Face Records想定売価",
-      "ユーザー向け販売価格",
+      "AI仮価格（下限円）",
+      "AI仮価格（上限円）",
+      "AI仮価格帯",
+      "AI仮価格確信度（%）",
+      "価格判断",
     ],
   },
-  { name: "判断レイヤー", columns: ["価格判断", "販売導線", "ステータス"] },
+  {
+    name: "市場データ価格",
+    columns: [
+      "Discogs Median USD",
+      "市場データ国内換算価格（円）",
+      "市場データ取得元",
+      "市場データ取得日時",
+      "ディスクユニオン査定額",
+      "Face Records想定売価",
+    ],
+  },
+  {
+    name: "人の確定・実売",
+    columns: [
+      "人が確定した販売価格（円）",
+      "価格確定者",
+      "価格確定日時",
+      "実売価格（円）",
+      "実売日",
+      "移行前販売価格",
+    ],
+  },
+  { name: "判断レイヤー", columns: ["販売導線", "ステータス"] },
   {
     name: "編集レイヤー",
     columns: [
@@ -75,6 +111,28 @@ const AI_APPRAISAL_SCHEMA_VERSION = "record-appraisal-v3";
 const ACCESS_TOKEN_SESSION_KEY = "oiso-record-app.access-token";
 const DB_NAME = "oiso-record-app";
 const DB_STORE = "photos";
+const LEGACY_PRICE_COLUMN = "ユーザー向け販売価格";
+const READ_ONLY_COLUMNS = new Set([
+  "AI仮価格（下限円）",
+  "AI仮価格（上限円）",
+  "AI仮価格帯",
+  "AI仮価格確信度（%）",
+  "市場データ取得日時",
+  "価格確定日時",
+  "移行前販売価格",
+]);
+const NUMERIC_COLUMNS = new Set([
+  "ID",
+  "Discogs Median USD",
+  "ディスクユニオン査定額",
+  "Face Records想定売価",
+  "AI仮価格（下限円）",
+  "AI仮価格（上限円）",
+  "AI仮価格確信度（%）",
+  "市場データ国内換算価格（円）",
+  "人が確定した販売価格（円）",
+  "実売価格（円）",
+]);
 
 let records = [];
 let settings = {};
@@ -576,7 +634,14 @@ function applyAnalysisToRecord(record, rawAnalysis) {
   fields[appColumn(8)] = "未取得（Discogs未接続）";
   fields[appColumn(9)] = analysis.du_evaluation ? `AI参考: ${analysis.du_evaluation}` : "AI参考: 不明";
   fields[appColumn(10)] = analysis.face_records_evaluation ? `AI参考: ${analysis.face_records_evaluation}` : "AI参考: 不明";
-  fields[appColumn(11)] = analysis.release_identified ? analysis.domestic_price_range_jpy : "";
+  fields["AI仮価格（下限円）"] = analysis.release_identified && analysis.domestic_price_low_jpy !== null
+    ? analysis.domestic_price_low_jpy
+    : "";
+  fields["AI仮価格（上限円）"] = analysis.release_identified && analysis.domestic_price_high_jpy !== null
+    ? analysis.domestic_price_high_jpy
+    : "";
+  fields["AI仮価格帯"] = analysis.release_identified ? analysis.domestic_price_range_jpy : "";
+  fields["AI仮価格確信度（%）"] = analysis.price_confidence;
   fields[appColumn(12)] = priceRankFromAnalysis(analysis);
   fields[appColumn(13)] = reviewRequired
     ? (analysis.domestic_price_high_jpy >= 12000 ? "高額保留" : "要確認")
@@ -889,9 +954,10 @@ function renderFieldEditor(record) {
     group.columns.forEach((column) => {
       const row = document.createElement("div");
       const wide = ["状態メモ", "文脈タグ", "山田コメント", "販売キャプション"].includes(column);
-      row.className = `field-row${wide ? " wide-field" : ""}`;
+      const readOnly = READ_ONLY_COLUMNS.has(column);
+      row.className = `field-row${wide ? " wide-field" : ""}${readOnly ? " no-flag" : ""}`;
       row.appendChild(makeFieldControl(record, column));
-      row.appendChild(makeFlagToggle(record, column));
+      if (!readOnly) row.appendChild(makeFlagToggle(record, column));
       grid.appendChild(row);
     });
 
@@ -922,12 +988,21 @@ function makeFieldControl(record, column) {
   } else {
     input = document.createElement("input");
     input.value = value;
-    if (column === "ID") input.type = "number";
+    if (NUMERIC_COLUMNS.has(column)) {
+      input.type = "number";
+      input.min = "0";
+      input.step = column === "Discogs Median USD" ? "0.01" : "1";
+    } else if (column === "実売日") {
+      input.type = "date";
+    }
   }
 
+  input.readOnly = READ_ONLY_COLUMNS.has(column);
   input.dataset.column = column;
-  input.addEventListener("input", () => updateSelectedField(column, input.value));
-  input.addEventListener("change", () => updateSelectedField(column, input.value));
+  if (!input.readOnly) {
+    input.addEventListener("input", () => updateSelectedField(column, input.value));
+    input.addEventListener("change", () => updateSelectedField(column, input.value));
+  }
   label.appendChild(input);
   return label;
 }
@@ -963,11 +1038,62 @@ function updateSelectedField(column, value) {
   const record = records.find((item) => item.uid === selectedRecordId);
   if (!record) return;
   record.fields[column] = value;
-  record.updatedAt = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  if (["Discogs Median USD", "市場データ国内換算価格（円）", "市場データ取得元"].includes(column)) {
+    const hasMarketData = [
+      "Discogs Median USD",
+      "市場データ国内換算価格（円）",
+      "市場データ取得元",
+    ].some((field) => String(record.fields[field] || "").trim());
+    record.fields["市場データ取得日時"] = hasMarketData ? nowIso : "";
+    updateVisibleFieldValue("市場データ取得日時", record.fields["市場データ取得日時"]);
+  }
+
+  if (column === "人が確定した販売価格（円）") {
+    record.fields["価格確定日時"] = String(value).trim() ? nowIso : "";
+    updateVisibleFieldValue("価格確定日時", record.fields["価格確定日時"]);
+  }
+
+  if (column === "実売価格（円）") {
+    if (String(value).trim() && !record.fields["実売日"]) {
+      record.fields["実売日"] = localDateValue(now);
+      updateVisibleFieldValue("実売日", record.fields["実売日"]);
+    }
+    if (!String(value).trim()) {
+      record.fields["実売日"] = "";
+      updateVisibleFieldValue("実売日", "");
+    }
+  }
+
+  refreshPriceAuditFlags(record);
+  delete record.sheetSyncedAt;
+  record.updatedAt = nowIso;
   saveRecords();
+  renderFlagStrip(record);
   renderMetrics();
   renderMaster();
   renderOperations();
+}
+
+function updateVisibleFieldValue(column, value) {
+  const input = $$("[data-column]").find((element) => element.dataset.column === column);
+  if (input) input.value = value || "";
+}
+
+function localDateValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function refreshPriceAuditFlags(record) {
+  const hasFinalPrice = String(record.fields["人が確定した販売価格（円）"] || "").trim();
+  const hasConfirmer = String(record.fields["価格確定者"] || "").trim();
+  record.flags = record.flags.filter((flag) => flag !== "価格確定者");
+  if (hasFinalPrice && !hasConfirmer) record.flags = uniqueFlags([...record.flags, "価格確定者"]);
 }
 
 function toggleFlag(uid, column, checked) {
@@ -988,6 +1114,7 @@ function approveSelectedRecord() {
   record.workflowState = "approved";
   if (!record.fields["ID"]) record.fields["ID"] = nextId();
   if (record.fields["価格判断"] === "要確認") record.flags = uniqueFlags([...record.flags, "価格判断"]);
+  refreshPriceAuditFlags(record);
   record.updatedAt = new Date().toISOString();
   selectedRecordId = null;
   saveRecords();
@@ -1016,25 +1143,58 @@ function renderMaster() {
 
   thead.innerHTML = `
     <tr>
-      ${["ID", "アーティスト", "タイトル", "型番", "価格判断", "ステータス", "棚設計5本タグ", "販売導線", "同期"].map((column) => `<th>${column}</th>`).join("")}
+      ${[
+        "ID",
+        "アーティスト",
+        "タイトル",
+        "型番",
+        "AI仮価格帯",
+        "市場価格（円）",
+        "確定価格（円）",
+        "価格判断",
+        "ステータス",
+        "棚設計5本タグ",
+        "販売導線",
+        "同期",
+        "操作",
+      ].map((column) => `<th>${column}</th>`).join("")}
     </tr>
   `;
 
   tbody.innerHTML = "";
   filtered.forEach((record) => {
     const row = document.createElement("tr");
-    const cells = ["ID", "アーティスト", "タイトル", "型番", "価格判断", "ステータス", "棚設計5本タグ", "販売導線"]
+    const cells = ["ID", "アーティスト", "タイトル", "型番"]
       .map((column) => `<td>${escapeHtml(String(record.fields[column] ?? ""))}</td>`);
+    cells.push(`<td>${escapeHtml(String(record.fields["AI仮価格帯"] || ""))}</td>`);
+    cells.push(`<td>${escapeHtml(String(record.fields["市場データ国内換算価格（円）"] || ""))}</td>`);
+    cells.push(`<td>${escapeHtml(String(record.fields["人が確定した販売価格（円）"] || ""))}</td>`);
+    cells.push(...["価格判断", "ステータス", "棚設計5本タグ", "販売導線"]
+      .map((column) => `<td>${escapeHtml(String(record.fields[column] ?? ""))}</td>`));
     cells.push(`<td>${record.sheetSyncedAt ? "済" : "未"}</td>`);
+    cells.push(`<td><button class="button button-compact edit-record" type="button">編集</button></td>`);
     row.innerHTML = cells.join("");
+    $(".edit-record", row).addEventListener("click", () => reopenRecordForEditing(record.uid));
     tbody.appendChild(row);
   });
 
   if (!filtered.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td colspan="9">承認済みレコードはありません。</td>`;
+    row.innerHTML = `<td colspan="13">承認済みレコードはありません。</td>`;
     tbody.appendChild(row);
   }
+}
+
+function reopenRecordForEditing(uid) {
+  const record = records.find((item) => item.uid === uid);
+  if (!record) return;
+  record.workflowState = "draft";
+  record.updatedAt = new Date().toISOString();
+  delete record.sheetSyncedAt;
+  selectedRecordId = uid;
+  saveRecords();
+  setView("review");
+  showToast("再編集に戻しました。承認後にSheetsへ再同期できます。");
 }
 
 function getFilteredApprovedRecords() {
@@ -1170,7 +1330,16 @@ function createTestApprovedRecord() {
   fields["Discogs Median USD"] = "";
   fields["ディスクユニオン査定額"] = "";
   fields["Face Records想定売価"] = "";
-  fields["ユーザー向け販売価格"] = "2,000-3,000円";
+  fields["AI仮価格（下限円）"] = 2000;
+  fields["AI仮価格（上限円）"] = 3000;
+  fields["AI仮価格帯"] = "2,000-3,000円";
+  fields["AI仮価格確信度（%）"] = 100;
+  fields["市場データ国内換算価格（円）"] = 2500;
+  fields["市場データ取得元"] = "同期確認用テスト";
+  fields["市場データ取得日時"] = now;
+  fields["人が確定した販売価格（円）"] = 2800;
+  fields["価格確定者"] = "テスト担当";
+  fields["価格確定日時"] = now;
   fields["価格判断"] = "B｜回転良盤";
   fields["販売導線"] = "POPUP向き";
   fields["ステータス"] = "販売準備中";
@@ -1412,12 +1581,49 @@ function loadRecords() {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error("Record data is not an array");
-    return parsed;
+    return parsed.map(migrateRecord);
   } catch {
     recordStorageWritable = false;
     recordStorageError = "端末内データを読み込めません。上書きを停止しました。";
     return [];
   }
+}
+
+function migrateRecord(record) {
+  if (!record || typeof record !== "object") return record;
+  const fields = record.fields && typeof record.fields === "object" ? record.fields : {};
+  const legacyPrice = String(fields[LEGACY_PRICE_COLUMN] || "").trim();
+
+  MASTER_COLUMNS.forEach((column) => {
+    if (fields[column] === undefined || fields[column] === null) fields[column] = "";
+  });
+
+  if (legacyPrice && !String(fields["移行前販売価格"] || "").trim()) {
+    fields["移行前販売価格"] = legacyPrice;
+  }
+
+  const analysis = record.analysis && typeof record.analysis === "object" ? record.analysis : null;
+  if (analysis) {
+    const low = finiteInteger(analysis.domestic_price_low_jpy);
+    const high = finiteInteger(analysis.domestic_price_high_jpy);
+    if (!String(fields["AI仮価格（下限円）"] || "").trim() && low !== null) {
+      fields["AI仮価格（下限円）"] = low;
+    }
+    if (!String(fields["AI仮価格（上限円）"] || "").trim() && high !== null) {
+      fields["AI仮価格（上限円）"] = high;
+    }
+    if (!String(fields["AI仮価格帯"] || "").trim() && low !== null && high !== null && high >= low) {
+      fields["AI仮価格帯"] = formatPriceRange(low, high);
+    }
+    if (!String(fields["AI仮価格確信度（%）"] || "").trim() && analysis.price_confidence !== undefined) {
+      fields["AI仮価格確信度（%）"] = confidenceNumber(analysis.price_confidence);
+    }
+  }
+
+  record.fields = fields;
+  record.flags = Array.isArray(record.flags) ? record.flags : [];
+  refreshPriceAuditFlags(record);
+  return record;
 }
 
 function saveRecords() {

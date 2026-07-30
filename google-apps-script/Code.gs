@@ -1,5 +1,5 @@
 var SHEET_NAME = "48枚マスター";
-var ENDPOINT_VERSION = "record-sync-v3";
+var ENDPOINT_VERSION = "record-sync-v4";
 var MAX_RECORDS_PER_REQUEST = 50;
 var MAX_PAYLOAD_LENGTH = 500000;
 var SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -26,7 +26,20 @@ var MASTER_COLUMNS = [
   "服部さん選盤候補",
   "記録媒体章立て候補",
   "山田コメント",
-  "販売キャプション"
+  "販売キャプション",
+  "AI仮価格（下限円）",
+  "AI仮価格（上限円）",
+  "AI仮価格帯",
+  "AI仮価格確信度（%）",
+  "市場データ国内換算価格（円）",
+  "市場データ取得元",
+  "市場データ取得日時",
+  "人が確定した販売価格（円）",
+  "価格確定者",
+  "価格確定日時",
+  "実売価格（円）",
+  "実売日",
+  "移行前販売価格"
 ];
 
 var META_COLUMNS = [
