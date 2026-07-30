@@ -36,8 +36,10 @@ APIキーはブラウザへ保存せず、Vercel FunctionsからOpenAIへ送信�
 1. Vercelの対象プロジェクトで `Settings` -> `Environment Variables` を開きます。
 2. `OPENAI_API_KEY` にOpenAI APIキーを設定します。
 3. `APP_ACCESS_TOKEN` にスタッフだけが知る任意のアクセスコードを設定します。
-4. 必要な場合だけ `OPENAI_MODEL` を設定します。未設定時は `gpt-4.1-mini` です。
-5. Productionを再デプロイします。
+4. `SHEETS_WEB_APP_URL` にApps Scriptの `/exec` URLを設定します。
+5. `SHEETS_SYNC_SECRET` に32文字以上のランダムな同期署名鍵を設定します。
+6. 必要な場合だけ `OPENAI_MODEL` を設定します。未設定時は `gpt-4.1-mini` です。
+7. Productionを再デプロイします。
 
 AI判定またはSheets同期を最初に押した時だけアクセスコードを入力します。コードはそのタブ内だけに保持されます。
 
@@ -50,12 +52,13 @@ Apps Script側にHTMLファイルは不要です。`Code.gs` だけを使い、W
 1. Googleスプレッドシートを作成します。
 2. `拡張機能` -> `Apps Script` を開きます。
 3. `google-apps-script/Code.gs` の内容を貼り付けます。
-4. `デプロイ` -> `新しいデプロイ` -> 種類 `ウェブアプリ` を選びます。
-5. 実行ユーザーは自分、アクセス権はまず `全員` または `リンクを知っている全員` にします。
-6. 発行された `/exec` で終わるURLを確認します。
-7. `Sheets同期` を押すと、承認済みで未同期のレコードが40件ずつ `48枚マスター` シートへ追記/更新されます。OpenAI解析済みのレコードは、追加列に `次回確認項目` と `AI解析JSON` も保存されます。
+4. Apps Scriptの `プロジェクトの設定` -> `スクリプト プロパティ` に `SHEETS_SYNC_SECRET` を追加し、Vercelと同じ署名鍵を設定します。
+5. `デプロイ` -> `新しいデプロイ` -> 種類 `ウェブアプリ` を選びます。
+6. 実行ユーザーは自分、アクセス権は `全員` または `リンクを知っている全員` にします。
+7. 発行された `/exec` で終わるURLをVercelの `SHEETS_WEB_APP_URL` に設定します。
+8. `Sheets同期` を押すと、承認済みで未同期のレコードが40件ずつ `48枚マスター` シートへ追記/更新されます。OpenAI解析済みのレコードは、追加列に `次回確認項目` と `AI解析JSON` も保存されます。
 
-Vercel FunctionsがApps Scriptの応答件数を確認し、受理されたレコードだけを同期済みにします。
+Vercel Functionsが同期データへHMAC署名し、Apps Scriptが署名・有効時刻・再送を検証します。URLを知っているだけでは書き込めません。Apps Scriptが返したUIDまで照合し、受理されたレコードだけを同期済みにします。
 
 ## 新しいスプレッドシートへ移行
 
@@ -76,4 +79,4 @@ Vercel FunctionsがApps Scriptの応答件数を確認し、受理されたレ�
 
 ## 共有URL
 
-公開URLをスタッフへ渡すだけで使えます。Apps Scriptの `/exec` URLはアプリ側に固定しているため、共有先でURLを入力する必要はありません。
+公開URLをスタッフへ渡すだけで使えます。Apps Scriptの `/exec` URLと同期署名鍵はサーバー側だけに保持するため、共有先でURLを入力する必要はありません。

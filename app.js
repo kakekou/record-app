@@ -69,7 +69,6 @@ const SHELF_TAGS = [
 
 const STORAGE_KEY = "oiso-record-app.records.v1";
 const SETTINGS_KEY = "oiso-record-app.settings.v1";
-const DEFAULT_SYNC_URL = "https://script.google.com/macros/s/AKfycbxBSSPa1AtE95mrH4KTgld4J2DxyhHCRz8mjrmZibTFVOPH7VvijP59slL7XKm7SUs5/exec";
 const OPENAI_PROXY_URL = "/api/analyze";
 const SHEETS_PROXY_URL = "/api/sync";
 const AI_APPRAISAL_SCHEMA_VERSION = "record-appraisal-v3";
@@ -93,10 +92,8 @@ const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selec
 document.addEventListener("DOMContentLoaded", () => {
   records = loadRecords();
   settings = loadSettings();
-  enforceFixedSyncUrl();
   seedDate();
   fillOptionLists();
-  fillSettings();
   bindEvents();
   renderAll();
   registerServiceWorker();
@@ -126,7 +123,6 @@ function bindEvents() {
   $("#export-json").addEventListener("click", exportJson);
   $("#sync-sheets").addEventListener("click", syncApprovedRecords);
   $("#sync-sheets-secondary").addEventListener("click", syncApprovedRecords);
-  $("#save-sync-url").addEventListener("click", saveSyncSettings);
   $("#copy-share-link").addEventListener("click", copyConfiguredShareLink);
   $("#create-test-record").addEventListener("click", createTestApprovedRecord);
   $("#reset-sync-state").addEventListener("click", resetSyncState);
@@ -136,27 +132,6 @@ function bindEvents() {
     $(selector).addEventListener("input", renderMaster);
     $(selector).addEventListener("change", renderMaster);
   });
-}
-
-function fillSettings() {
-  $("#sync-url").value = settings.syncUrl || DEFAULT_SYNC_URL;
-  $("#sync-url").readOnly = true;
-}
-
-function enforceFixedSyncUrl() {
-  settings.syncUrl = DEFAULT_SYNC_URL;
-  saveSettings();
-
-  const params = new URLSearchParams(location.search);
-  if (!params.has("syncUrl")) return;
-
-  params.delete("syncUrl");
-  const cleanUrl = `${location.pathname}${params.toString() ? `?${params.toString()}` : ""}${location.hash}`;
-  history.replaceState(null, "", cleanUrl);
-}
-
-function isAppsScriptExecUrl(value) {
-  return /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec(?:[?#].*)?$/.test(String(value || "").trim());
 }
 
 function seedDate() {
@@ -194,14 +169,20 @@ async function handleIntakeSubmit(event) {
   event.preventDefault();
   const formData = getIntakeData();
   const record = createDraftRecord(formData);
-  await attachPhotos(record);
-  records.push(record);
-  selectedRecordId = record.uid;
-  saveRecords();
-  resetIntakeForm();
-  renderAll();
-  setView("review");
-  showToast("下書きを作成しました。");
+  try {
+    await attachPhotos(record);
+    records.push(record);
+    selectedRecordId = record.uid;
+    saveRecords();
+    resetIntakeForm();
+    renderAll();
+    setView("review");
+    showToast("下書きを作成しました。");
+  } catch (error) {
+    records = records.filter((item) => item.uid !== record.uid);
+    await removeRecordPhotos(record);
+    showToast(error.message || "端末へ保存できませんでした。");
+  }
 }
 
 function getIntakeData() {
@@ -386,7 +367,13 @@ async function analyzeWithOpenAI() {
     await attachPhotos(record);
     records.push(record);
     selectedRecordId = record.uid;
-    saveRecords();
+    try {
+      saveRecords();
+    } catch (error) {
+      records = records.filter((item) => item.uid !== record.uid);
+      await removeRecordPhotos(record);
+      throw error;
+    }
     resetIntakeForm();
     renderAll();
     setView("review");
@@ -760,6 +747,7 @@ function setCurrentPhoto(type, file) {
 
 async function attachPhotos(record) {
   const entries = Object.entries(currentFiles);
+  const savedKeys = [];
   for (const [type, file] of entries) {
     const key = `${record.uid}:${type}`;
     record.photos[type] = {
@@ -771,10 +759,17 @@ async function attachPhotos(record) {
     };
     try {
       await putPhoto(key, file);
+      savedKeys.push(key);
     } catch {
-      record.photos[type].storageError = true;
+      await Promise.allSettled(savedKeys.map((savedKey) => deletePhoto(savedKey)));
+      throw new Error("写真を端末へ保存できませんでした。空き容量を確認してください。");
     }
   }
+}
+
+async function removeRecordPhotos(record) {
+  const keys = Object.values(record?.photos || {}).map((photo) => photo?.key).filter(Boolean);
+  await Promise.allSettled(keys.map((key) => deletePhoto(key)));
 }
 
 function resetIntakeForm() {
@@ -1001,13 +996,14 @@ function approveSelectedRecord() {
   showToast("マスターに承認しました。");
 }
 
-function deleteSelectedRecord() {
+async function deleteSelectedRecord() {
   const record = records.find((item) => item.uid === selectedRecordId);
   if (!record) return;
   if (!confirm("この下書きを削除しますか。")) return;
   records = records.filter((item) => item.uid !== selectedRecordId);
   selectedRecordId = null;
   saveRecords();
+  await removeRecordPhotos(record);
   renderAll();
   showToast("下書きを削除しました。");
 }
@@ -1121,17 +1117,7 @@ function exportJson() {
   downloadFile(`oiso-master-${dateStamp()}.json`, JSON.stringify(payload, null, 2), "application/json");
 }
 
-function saveSyncSettings() {
-  settings.syncUrl = DEFAULT_SYNC_URL;
-  $("#sync-url").value = DEFAULT_SYNC_URL;
-  saveSettings();
-  showToast("同期先は固定済みです。");
-}
-
 async function copyConfiguredShareLink() {
-  settings.syncUrl = DEFAULT_SYNC_URL;
-  saveSettings();
-
   const url = new URL(location.href);
   url.search = "";
   url.hash = "";
@@ -1381,8 +1367,12 @@ function downloadFile(filename, content, type) {
 }
 
 function csvEscape(value) {
-  const text = String(value ?? "");
+  const text = neutralizeSpreadsheetFormula(String(value ?? ""));
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function neutralizeSpreadsheetFormula(value) {
+  return /^[\s\u0000-\u001f]*[=+\-@]/.test(value) ? `'${value}` : value;
 }
 
 function dateStamp() {
@@ -1501,6 +1491,22 @@ async function getPhotoUrl(key) {
     return url;
   } catch {
     return "";
+  }
+}
+
+async function deletePhoto(key) {
+  try {
+    const db = await openPhotoDb();
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(DB_STORE, "readwrite");
+      transaction.objectStore(DB_STORE).delete(key);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } finally {
+    const url = photoUrlCache.get(key);
+    if (url) URL.revokeObjectURL(url);
+    photoUrlCache.delete(key);
   }
 }
 

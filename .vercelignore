@@ -2,5 +2,8 @@
 .codex-analysis
 google-apps-script
 README.md
+tests
 .server-*.log
 .server-*.pid
+netlify-drop-*
+vercel-upload-*

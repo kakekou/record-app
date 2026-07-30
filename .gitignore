@@ -1,0 +1,5 @@
+.codex-analysis/
+.server-*.log
+.server-*.pid
+netlify-drop-*/
+vercel-upload-*/
