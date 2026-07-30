@@ -34,11 +34,18 @@ const MASTER_COLUMNS = [
   "実売価格（円）",
   "実売日",
   "移行前販売価格",
+  "Discogs Release ID",
+  "Discogs Release URL",
+  "Discogs照合日時",
 ];
 
 const FIELD_GROUPS = [
   { name: "コア識別", columns: ["ID", "区分", "アーティスト", "タイトル", "型番"] },
   { name: "盤情報", columns: ["国", "盤種・ラベル情報", "状態メモ"] },
+  {
+    name: "Discogs照合",
+    columns: ["Discogs Release ID", "Discogs Release URL", "Discogs照合日時"],
+  },
   {
     name: "AI一次価格",
     columns: [
@@ -50,7 +57,7 @@ const FIELD_GROUPS = [
     ],
   },
   {
-    name: "市場データ価格",
+    name: "市場価格（人が確認・入力）",
     columns: [
       "Discogs Median USD",
       "市場データ国内換算価格（円）",
@@ -106,6 +113,7 @@ const SHELF_TAGS = [
 const STORAGE_KEY = "oiso-record-app.records.v1";
 const SETTINGS_KEY = "oiso-record-app.settings.v1";
 const OPENAI_PROXY_URL = "/api/analyze";
+const DISCOGS_PROXY_URL = "/api/discogs-search";
 const SHEETS_PROXY_URL = "/api/sync";
 const AI_APPRAISAL_SCHEMA_VERSION = "record-appraisal-v3";
 const ACCESS_TOKEN_SESSION_KEY = "oiso-record-app.access-token";
@@ -117,6 +125,7 @@ const READ_ONLY_COLUMNS = new Set([
   "AI仮価格（上限円）",
   "AI仮価格帯",
   "AI仮価格確信度（%）",
+  "Discogs照合日時",
   "市場データ取得日時",
   "価格確定日時",
   "移行前販売価格",
@@ -141,6 +150,12 @@ let activeView = "capture";
 let currentFiles = {};
 let toastTimer = null;
 let photoUrlCache = new Map();
+let discogsLookup = {
+  recordUid: "",
+  status: "idle",
+  candidates: [],
+  error: "",
+};
 let recordStorageWritable = true;
 let recordStorageError = "";
 
@@ -961,8 +976,208 @@ function renderFieldEditor(record) {
       grid.appendChild(row);
     });
 
+    if (group.name === "Discogs照合") {
+      section.insertBefore(makeDiscogsLookup(record), grid);
+    }
     container.appendChild(section);
   });
+}
+
+function makeDiscogsLookup(record) {
+  const lookup = document.createElement("div");
+  lookup.className = "discogs-lookup";
+
+  const actions = document.createElement("div");
+  actions.className = "discogs-actions";
+
+  const searchButton = document.createElement("button");
+  searchButton.type = "button";
+  searchButton.className = "button button-primary";
+  searchButton.textContent = discogsLookup.status === "loading" && discogsLookup.recordUid === record.uid
+    ? "候補を検索中..."
+    : "候補を検索";
+  searchButton.disabled = discogsLookup.status === "loading";
+  searchButton.addEventListener("click", () => searchDiscogsCandidates(record.uid));
+
+  const directLink = document.createElement("a");
+  directLink.className = "button button-secondary";
+  directLink.href = buildDiscogsSearchUrl(record);
+  directLink.target = "_blank";
+  directLink.rel = "noopener noreferrer";
+  directLink.textContent = "Discogsを開く";
+
+  actions.append(searchButton, directLink);
+  lookup.appendChild(actions);
+
+  const help = document.createElement("p");
+  help.className = "discogs-help";
+  help.textContent = "候補盤の情報だけを検索します。Medianや販売履歴は自動取得しません。このアプリはDiscogs APIを利用していますが、Discogsとの提携・後援関係はありません。";
+  lookup.appendChild(help);
+
+  if (discogsLookup.recordUid === record.uid && discogsLookup.status === "error") {
+    const error = document.createElement("div");
+    error.className = "discogs-message is-error";
+    error.textContent = discogsLookup.error;
+    lookup.appendChild(error);
+  }
+
+  if (discogsLookup.recordUid === record.uid && discogsLookup.status === "success") {
+    const candidates = document.createElement("div");
+    candidates.className = "discogs-candidates";
+
+    if (!discogsLookup.candidates.length) {
+      const empty = document.createElement("div");
+      empty.className = "discogs-message";
+      empty.textContent = "候補が見つかりませんでした。Discogsを開いて検索条件を調整してください。";
+      candidates.appendChild(empty);
+    }
+
+    discogsLookup.candidates.forEach((candidate) => {
+      candidates.appendChild(makeDiscogsCandidate(record, candidate));
+    });
+    lookup.appendChild(candidates);
+  }
+
+  return lookup;
+}
+
+function makeDiscogsCandidate(record, candidate) {
+  const item = document.createElement("article");
+  item.className = "discogs-candidate";
+
+  const copy = document.createElement("div");
+  copy.className = "discogs-candidate-copy";
+  const title = document.createElement("strong");
+  title.textContent = candidate.title || `Release ${candidate.id}`;
+  const meta = document.createElement("span");
+  meta.textContent = [
+    candidate.catno && `Cat No: ${candidate.catno}`,
+    candidate.label,
+    candidate.country,
+    candidate.year,
+    candidate.format,
+  ].filter(Boolean).join(" / ") || "詳細情報なし";
+  copy.append(title, meta);
+
+  const actions = document.createElement("div");
+  actions.className = "discogs-candidate-actions";
+  const selectButton = document.createElement("button");
+  selectButton.type = "button";
+  selectButton.className = "button button-primary";
+  selectButton.textContent = String(record.fields["Discogs Release ID"]) === String(candidate.id)
+    ? "選択済み"
+    : "この候補を採用";
+  selectButton.disabled = String(record.fields["Discogs Release ID"]) === String(candidate.id);
+  selectButton.addEventListener("click", () => selectDiscogsCandidate(record.uid, candidate));
+
+  const pageLink = document.createElement("a");
+  pageLink.className = "button button-secondary";
+  pageLink.href = candidate.url;
+  pageLink.target = "_blank";
+  pageLink.rel = "noopener noreferrer";
+  pageLink.textContent = "Data provided by Discogs";
+  actions.append(selectButton, pageLink);
+
+  item.append(copy, actions);
+  return item;
+}
+
+function buildDiscogsSearchUrl(record) {
+  const query = [
+    record?.fields?.["型番"],
+    record?.fields?.["アーティスト"],
+    record?.fields?.["タイトル"],
+  ].map((value) => String(value || "").trim()).filter(Boolean).join(" ");
+  const params = new URLSearchParams({ q: query, type: "release" });
+  return `https://www.discogs.com/search/?${params.toString()}`;
+}
+
+async function searchDiscogsCandidates(recordUid) {
+  const record = records.find((item) => item.uid === recordUid);
+  if (!record) return;
+
+  const input = {
+    catalogNo: record.fields["型番"] || record.input?.catalogNo || "",
+    artist: record.fields["アーティスト"] || record.input?.artist || "",
+    title: record.fields["タイトル"] || record.input?.title || "",
+    country: record.fields["国"] || record.input?.country || "",
+    year: record.input?.year || "",
+    format: record.input?.format || "",
+  };
+
+  if (![input.catalogNo, input.artist, input.title].some((value) => String(value).trim())) {
+    discogsLookup = {
+      recordUid,
+      status: "error",
+      candidates: [],
+      error: "型番、アーティスト、タイトルのいずれかを入力してください。",
+    };
+    renderFieldEditor(record);
+    return;
+  }
+
+  discogsLookup = { recordUid, status: "loading", candidates: [], error: "" };
+  renderFieldEditor(record);
+
+  try {
+    const accessCode = getStaffAccessCode();
+    const response = await fetch(DISCOGS_PROXY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-App-Access-Code": accessCode,
+      },
+      body: JSON.stringify({ input }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok || !Array.isArray(data.candidates)) {
+      if (response.status === 401) sessionStorage.removeItem(ACCESS_TOKEN_SESSION_KEY);
+      throw new Error(data.error || `Discogs API error ${response.status}`);
+    }
+    discogsLookup = {
+      recordUid,
+      status: "success",
+      candidates: data.candidates,
+      error: "",
+    };
+  } catch (error) {
+    discogsLookup = {
+      recordUid,
+      status: "error",
+      candidates: [],
+      error: error.message || "Discogs候補を取得できませんでした。",
+    };
+  }
+  renderFieldEditor(record);
+}
+
+function selectDiscogsCandidate(recordUid, candidate) {
+  const record = records.find((item) => item.uid === recordUid);
+  if (!record) return;
+
+  const nowIso = new Date().toISOString();
+  record.fields["Discogs Release ID"] = candidate.id || "";
+  record.fields["Discogs Release URL"] = candidate.url || "";
+  record.fields["Discogs照合日時"] = nowIso;
+  fillFieldWhenBlank(record.fields, "型番", candidate.catno);
+  fillFieldWhenBlank(record.fields, "国", candidate.country);
+  record.analysis = {
+    ...(record.analysis || {}),
+    discogs_selected_release: candidate,
+  };
+  record.flags = uniqueFlags(
+    (record.flags || [])
+      .filter((flag) => !["Discogs候補未照合", "盤特定要確認", "Discogs未取得"].includes(flag))
+      .concat("Discogs価格未入力"),
+  );
+  delete record.sheetSyncedAt;
+  record.updatedAt = nowIso;
+  saveRecords();
+  renderReview();
+  renderMetrics();
+  renderMaster();
+  renderOperations();
+  showToast(`Discogs Release ${candidate.id} を採用しました。`);
 }
 
 function makeFieldControl(record, column) {
@@ -1042,6 +1257,23 @@ function updateSelectedField(column, value) {
   const nowIso = now.toISOString();
 
   if (["Discogs Median USD", "市場データ国内換算価格（円）", "市場データ取得元"].includes(column)) {
+    if (
+      column === "Discogs Median USD"
+      && String(value).trim()
+      && !String(record.fields["市場データ取得元"] || "").trim()
+    ) {
+      record.fields["市場データ取得元"] = "Discogs（人が確認）";
+      updateVisibleFieldValue("市場データ取得元", record.fields["市場データ取得元"]);
+    }
+    if (
+      column === "Discogs Median USD"
+      && !String(value).trim()
+      && record.fields["市場データ取得元"] === "Discogs（人が確認）"
+      && !String(record.fields["市場データ国内換算価格（円）"] || "").trim()
+    ) {
+      record.fields["市場データ取得元"] = "";
+      updateVisibleFieldValue("市場データ取得元", "");
+    }
     const hasMarketData = [
       "Discogs Median USD",
       "市場データ国内換算価格（円）",
@@ -1049,6 +1281,13 @@ function updateSelectedField(column, value) {
     ].some((field) => String(record.fields[field] || "").trim());
     record.fields["市場データ取得日時"] = hasMarketData ? nowIso : "";
     updateVisibleFieldValue("市場データ取得日時", record.fields["市場データ取得日時"]);
+  }
+
+  if (["Discogs Release ID", "Discogs Release URL"].includes(column)) {
+    const hasRelease = String(record.fields["Discogs Release ID"] || "").trim()
+      || String(record.fields["Discogs Release URL"] || "").trim();
+    record.fields["Discogs照合日時"] = hasRelease ? nowIso : "";
+    updateVisibleFieldValue("Discogs照合日時", record.fields["Discogs照合日時"]);
   }
 
   if (column === "人が確定した販売価格（円）") {

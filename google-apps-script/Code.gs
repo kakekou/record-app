@@ -1,5 +1,5 @@
 var SHEET_NAME = "48枚マスター";
-var ENDPOINT_VERSION = "record-sync-v4";
+var ENDPOINT_VERSION = "record-sync-v5";
 var MAX_RECORDS_PER_REQUEST = 50;
 var MAX_PAYLOAD_LENGTH = 500000;
 var SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -39,7 +39,10 @@ var MASTER_COLUMNS = [
   "価格確定日時",
   "実売価格（円）",
   "実売日",
-  "移行前販売価格"
+  "移行前販売価格",
+  "Discogs Release ID",
+  "Discogs Release URL",
+  "Discogs照合日時"
 ];
 
 var META_COLUMNS = [

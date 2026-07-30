@@ -87,3 +87,15 @@ test("keeps AI, market, human-confirmed, and sold prices in separate columns", (
     assert.equal(code.MASTER_COLUMNS.includes(column), true, `${column} is missing`);
   });
 });
+
+test("stores the human-selected Discogs release without Marketplace data", () => {
+  const code = loadCodeGs();
+  [
+    "Discogs Release ID",
+    "Discogs Release URL",
+    "Discogs照合日時",
+  ].forEach((column) => {
+    assert.equal(code.MASTER_COLUMNS.includes(column), true, `${column} is missing`);
+  });
+  assert.equal(code.ENDPOINT_VERSION, "record-sync-v5");
+});
