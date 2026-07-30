@@ -40,6 +40,14 @@ function loadCodeGs() {
         };
       },
     },
+    LockService: {
+      getDocumentLock() {
+        return null;
+      },
+      getScriptLock() {
+        return { type: "script" };
+      },
+    },
   };
   vm.createContext(context);
   const source = fs.readFileSync(
@@ -71,6 +79,11 @@ test("accepts a correctly signed request and rejects replay", () => {
 
   assert.equal(code.getSignedPayload(event), payload);
   assert.throws(() => code.getSignedPayload(event), /Replayed request/);
+});
+
+test("uses a script lock when running as a standalone Apps Script project", () => {
+  const code = loadCodeGs();
+  assert.equal(code.getWriteLock().type, "script");
 });
 
 test("keeps AI, market, human-confirmed, and sold prices in separate columns", () => {

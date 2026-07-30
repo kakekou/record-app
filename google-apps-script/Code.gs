@@ -1,5 +1,6 @@
 var SHEET_NAME = "48枚マスター";
 var ENDPOINT_VERSION = "record-sync-v5";
+var SPREADSHEET_ID_PROPERTY = "SPREADSHEET_ID";
 var MAX_RECORDS_PER_REQUEST = 50;
 var MAX_PAYLOAD_LENGTH = 500000;
 var SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -187,7 +188,7 @@ function validateRecord(record, seen) {
 }
 
 function writeRecords(payload, records) {
-  var lock = LockService.getDocumentLock();
+  var lock = getWriteLock();
   lock.waitLock(30000);
 
   try {
@@ -239,6 +240,10 @@ function writeRecords(payload, records) {
   }
 }
 
+function getWriteLock() {
+  return LockService.getDocumentLock() || LockService.getScriptLock();
+}
+
 function sheetSafeValue(value) {
   if (typeof value !== "string") return value;
   if (/^[\s\u0000-\u001f]*[=+\-@]/.test(value)) return "'" + value;
@@ -252,7 +257,13 @@ function jsonResponse(payload) {
 }
 
 function getSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var spreadsheetId = PropertiesService
+    .getScriptProperties()
+    .getProperty(SPREADSHEET_ID_PROPERTY);
+  var ss = spreadsheetId
+    ? SpreadsheetApp.openById(spreadsheetId)
+    : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error("Spreadsheet is not configured.");
   return ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
 }
 
